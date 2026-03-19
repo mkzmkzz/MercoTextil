@@ -590,10 +590,10 @@ const FusosPanel = ({ layout, machines, user, onMachineUpdate, onOrderUpdate, on
         if (m.status === 'azul') return [code, '', '', '', 'MANUTENÇÃO'];
         if (m.status === 'desativada') return [code, '', '', '', 'DESATIVADA'];
         if (m.status === 'vermelho' && m.order) {
-          return [code, m.order.artigo || '', m.order.cor || '', m.order.quantidade || '', 'EM PRODUÇÃO'];
+          return [code, m.order.artigo || '', m.order.cor || '', m.order.quantidade_metros || '', 'EM PRODUÇÃO'];
         }
         if (m.status === 'amarelo' && m.order) {
-          return [code, m.order.artigo || '', m.order.cor || '', m.order.quantidade || '', 'PENDENTE'];
+          return [code, m.order.artigo || '', m.order.cor || '', m.order.quantidade_metros || '', 'PENDENTE'];
         }
         return [code, '', '', '', ''];
       };

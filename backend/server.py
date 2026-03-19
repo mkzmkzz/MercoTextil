@@ -1557,17 +1557,25 @@ async def get_mapa_trancadeiras(layout_type: str, current_user: User = Depends(g
             if code and code not in order_map:
                 order_map[code] = order
 
+        # Fetch espulagem data to get quantidade_metros for each order
+        espula_ids = list({o.get("espulagem_id") for o in orders if o.get("espulagem_id")})
+        espula_map = {}
+        if espula_ids:
+            espulas = await db.espulas.find({"id": {"$in": espula_ids}}).to_list(len(espula_ids))
+            espula_map = {e["id"]: e for e in espulas}
+
         result_machines = []
         for machine in machines:
             machine_code = machine.get("code")
             order = order_map.get(machine_code)
             order_data = None
             if order:
+                espula = espula_map.get(order.get("espulagem_id", ""), {})
                 order_data = {
                     "cliente": order.get("cliente", ""),
                     "artigo": order.get("artigo", ""),
                     "cor": order.get("cor", ""),
-                    "quantidade": order.get("quantidade", ""),
+                    "quantidade_metros": espula.get("quantidade_metros", ""),
                     "status": order.get("status", "")
                 }
             result_machines.append({
