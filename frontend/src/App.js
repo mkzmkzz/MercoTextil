@@ -1,20 +1,20 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import "./App.css";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import axios from "axios";
+import { Clock, Download, Edit, Factory, LogOut, RefreshCw, Trash2, Users, Wrench } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { toast } from "sonner";
+import * as XLSX from 'xlsx';
+import "./App.css";
+import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./components/ui/dialog";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
-import { Textarea } from "./components/ui/textarea";
-import { Badge } from "./components/ui/badge";
-import { toast } from "sonner";
 import { Toaster } from "./components/ui/sonner";
-import { LogOut, Users, Download, Settings, Factory, Trash2, Wrench, Clock, RefreshCw, Edit } from "lucide-react";
-import * as XLSX from 'xlsx';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { Textarea } from "./components/ui/textarea";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -572,6 +572,272 @@ const FusosPanel = ({ layout, machines, user, onMachineUpdate, onOrderUpdate, on
     }
   };
 
+  const exportMapaTrancadeiras = async (layoutType) => {
+    try {
+      const XLSXStyle = require('xlsx-js-style');
+      const response = await axios.get(
+        `${API}/reports/mapa-trancadeiras?layout_type=${layoutType}`,
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
+      );
+
+      const { machines: machineData } = response.data;
+      const machinesMap = {};
+      machineData.forEach(m => { machinesMap[m.code] = m; });
+
+      const getMachineData = (code) => {
+        const m = machinesMap[code];
+        if (!m) return [code, '', '', '', ''];
+        if (m.status === 'azul') return [code, '', '', '', 'MANUTENÇÃO'];
+        if (m.status === 'desativada') return [code, '', '', '', 'DESATIVADA'];
+        if (m.status === 'vermelho' && m.order) {
+          return [code, m.order.artigo || '', m.order.cor || '', m.order.quantidade || '', 'EM PRODUÇÃO'];
+        }
+        if (m.status === 'amarelo' && m.order) {
+          return [code, m.order.artigo || '', m.order.cor || '', m.order.quantidade || '', 'PENDENTE'];
+        }
+        return [code, '', '', '', ''];
+      };
+
+      const thin = { style: "thin", color: { rgb: "000000" } };
+      const bdrAll = { top: thin, bottom: thin, left: thin, right: thin };
+      const centerWrap = { horizontal: "center", vertical: "center", wrapText: true };
+
+      const colLetter = (idx) => {
+        if (idx < 26) return String.fromCharCode(65 + idx);
+        return String.fromCharCode(65 + Math.floor(idx / 26) - 1) + String.fromCharCode(65 + (idx % 26));
+      };
+
+      const wb = XLSXStyle.utils.book_new();
+
+      if (layoutType === '32_fusos') {
+        // ── 32 FUSOS: direct cell approach with merge boxes ──
+        // Row layout (0-indexed):
+        //  r  0- 2:  CT1[0]…CT12[11]
+        //  r  3:     GAP
+        //  r  4- 6:  CT13[0]…CT24[11]
+        //  r  7:     GAP
+        //  r  8-10:  U1[1] U2[2]  |  U11[5] U12[6]  |  U21[9] U22[10]
+        //  r 11-13:  U3[1] U4[2]  |  U13[5] U14[6]  |  U23[9] U24[10]
+        //  r 14-16:  U5[1] U6[2]  |  U15[5] U16[6]  |  U25[9] U26[10]
+        //  r 17-19:  U7[1] U8[2]  |  U17[5] U18[6]  |  U27[9] U28[10]
+        //  r 20-22:  U9[1] U10[2] |  U19[5] U20[6]  |  U29[9] U30[10]
+        //  r 23:     GAP
+        //  r 24-26:  N1[1]…N10[10]
+        //  r 27:     GAP
+        //  r 28-30:  U32[4]  U31[6]
+        //  r 31-33:  U33[4]
+        //  r 34:     Date [col 9]
+
+        const ws32 = {};
+        const TOTAL_ROWS_32 = 55;
+        const numCols32 = 12; // A-L
+
+        const sc32 = (r, c, val, style) => {
+          const addr = `${colLetter(c)}${r + 1}`;
+          ws32[addr] = { v: String(val), t: 's', s: style };
+        };
+
+        const box5_32 = (code, r, c) => {
+          const [codeVal, artigo, cor, qtd, statusLabel] = getMachineData(code);
+          const lines = [codeVal];
+          if (artigo) lines.push(artigo);
+          if (cor) lines.push(cor);
+          if (qtd) lines.push(qtd);
+          if (statusLabel) lines.push(statusLabel);
+          sc32(r,   c, lines.join('\n'), { border: bdrAll, alignment: centerWrap, font: { sz: 9, bold: true } });
+          sc32(r+1, c, '', { border: bdrAll, alignment: centerWrap });
+          sc32(r+2, c, '', { border: bdrAll, alignment: centerWrap });
+          sc32(r+3, c, '', { border: bdrAll, alignment: centerWrap });
+          sc32(r+4, c, '', { border: bdrAll, alignment: centerWrap });
+        };
+
+        // ── CT rows ──
+        ['CT1','CT2','CT3','CT4','CT5','CT6','CT7','CT8','CT9','CT10','CT11','CT12'].forEach((code, i) => {
+          box5_32(code, 0, i);
+        });
+        ['CT13','CT14','CT15','CT16','CT17','CT18','CT19','CT20','CT21','CT22','CT23','CT24'].forEach((code, i) => {
+          box5_32(code, 6, i);
+        });
+
+        // ── U groups (3 columns of pairs) ──
+        const uPairs32 = [
+          ['U1','U2',   'U11','U12',  'U21','U22',  12],
+          ['U3','U4',   'U13','U14',  'U23','U24',  17],
+          ['U5','U6',   'U15','U16',  'U25','U26',  22],
+          ['U7','U8',   'U17','U18',  'U27','U28',  27],
+          ['U9','U10',  'U19','U20',  'U29','U30',  32],
+        ];
+        uPairs32.forEach(([a, b, c, d, e, f, startRow]) => {
+          box5_32(a, startRow, 1); box5_32(b, startRow, 2);
+          box5_32(c, startRow, 5); box5_32(d, startRow, 6);
+          box5_32(e, startRow, 9); box5_32(f, startRow, 10);
+        });
+
+        // ── N row ──
+        ['N1','N2','N3','N4','N5','N6','N7','N8','N9','N10'].forEach((code, i) => {
+          box5_32(code, 38, i + 1);
+        });
+
+        // ── U31-U33 ──
+        box5_32('U32', 44, 4);
+        box5_32('U31', 44, 6);
+        box5_32('U33', 49, 4);
+
+        // ── Date ──
+        sc32(54, 9, new Date().toLocaleDateString('pt-BR'), {
+          font: { sz: 10 }, alignment: { horizontal: "center" }
+        });
+
+        ws32['!ref'] = `A1:${colLetter(numCols32 - 1)}${TOTAL_ROWS_32}`;
+
+        // ── Merges (5-row single-column boxes) ──
+        ws32['!merges'] = [];
+        const m32 = [];
+        // CT rows
+        for (let i = 0; i < 12; i++) { m32.push([0, i]); m32.push([6, i]); }
+        // U pairs
+        uPairs32.forEach(([,,,,, , startRow]) => {
+          [1,2,5,6,9,10].forEach(c => m32.push([startRow, c]));
+        });
+        // N row
+        for (let i = 1; i <= 10; i++) m32.push([38, i]);
+        // U31-U33
+        m32.push([44, 4]); m32.push([44, 6]);
+        m32.push([49, 4]);
+        m32.forEach(([r, c]) => ws32['!merges'].push({ s: { r, c }, e: { r: r+4, c } }));
+
+        // ── Column widths ──
+        ws32['!cols'] = Array(numCols32).fill({ wch: 14 });
+
+        // ── Row heights ──
+        ws32['!rows'] = Array.from({ length: TOTAL_ROWS_32 }, () => ({ hpt: 15 }));
+        ws32['!rows'][5]  = { hpt: 6 };
+        ws32['!rows'][11] = { hpt: 6 };
+        ws32['!rows'][37] = { hpt: 6 };
+        ws32['!rows'][43] = { hpt: 6 };
+        ws32['!rows'][54] = { hpt: 16 };
+
+        XLSXStyle.utils.book_append_sheet(wb, ws32, 'Mapa 32 Fusos');
+
+      } else {
+        // ── 16 FUSOS: direct cell approach with merge boxes ──
+        // Row layout (0-indexed):
+        //  r 0-2:   CD1[1] CD2[2] | CD5[4] CD6[5] | CD17[7] CD18[8] CD19[9] CD20[10]
+        //  r 3-5:   CD3[1] CD4[2] | CD7[4] CD8[5] | CD21[7] CD22[8] CD23[9] CD24[10]
+        //  r 6:     GAP
+        //  r 7-9:   CD9[1] CD10[2] | CD13[4] CD14[5]
+        //  r 10-12: CD11[1] CD12[2] | CD15[4] CD16[5]
+        //  r 13:    GAP
+        //  r 14:    "17 FUSOS" label (cols 4-7 merged)
+        //  r 15-17: CI1[4] CI2[5] CI3[6] CI4[7]
+        //  r 18:    GAP
+        //  r 19-21: F23[1] F21[2] … F1[12]
+        //  r 22-24: F24[1] F22[2] … F2[12]
+        //  r 25:    Date [col 10]
+
+        const ws = {};
+        const TOTAL_ROWS = 40;
+        const numCols16 = 13; // A-M
+
+        const sc = (r, c, val, style) => {
+          const addr = `${colLetter(c)}${r + 1}`;
+          ws[addr] = { v: String(val), t: 's', s: style };
+        };
+
+        // Standard 5-row merge box: content in anchor, blanks for rows 1-4
+        const box5 = (code, r, c) => {
+          const [codeVal, artigo, cor, qtd, statusLabel] = getMachineData(code);
+          const lines = [codeVal];
+          if (artigo) lines.push(artigo);
+          if (cor) lines.push(cor);
+          if (qtd) lines.push(qtd);
+          if (statusLabel) lines.push(statusLabel);
+          sc(r,   c, lines.join('\n'), { border: bdrAll, alignment: centerWrap, font: { sz: 9, bold: true } });
+          sc(r+1, c, '', { border: bdrAll, alignment: centerWrap });
+          sc(r+2, c, '', { border: bdrAll, alignment: centerWrap });
+          sc(r+3, c, '', { border: bdrAll, alignment: centerWrap });
+          sc(r+4, c, '', { border: bdrAll, alignment: centerWrap });
+        };
+
+        // ── Top section ──
+        box5('CD1', 0, 1); box5('CD2', 0, 2);
+        box5('CD5', 0, 4); box5('CD6', 0, 5);
+        box5('CD17', 0, 7); box5('CD18', 0, 8); box5('CD19', 0, 9); box5('CD20', 0, 10);
+        box5('CD3', 5, 1); box5('CD4', 5, 2);
+        box5('CD7', 5, 4); box5('CD8', 5, 5);
+        box5('CD21', 5, 7); box5('CD22', 5, 8); box5('CD23', 5, 9); box5('CD24', 5, 10);
+
+        // ── Middle section ──
+        box5('CD9',  11, 1); box5('CD10', 11, 2);
+        box5('CD13', 11, 4); box5('CD14', 11, 5);
+        box5('CD11', 16, 1); box5('CD12', 16, 2);
+        box5('CD15', 16, 4); box5('CD16', 16, 5);
+
+        // ── "17 FUSOS" label row (r=22, cols 4-7 merged) ──
+        sc(22, 4, '17 FUSOS', { border: bdrAll, alignment: { horizontal: "center", vertical: "center" }, font: { sz: 12, bold: true } });
+        [5, 6, 7].forEach(c => sc(22, c, '', { border: bdrAll, alignment: centerWrap }));
+
+        // ── CI block (r=23-27, cols 4-7) ──
+        box5('CI1', 23, 4); box5('CI2', 23, 5); box5('CI3', 23, 6); box5('CI4', 23, 7);
+
+        // ── F machines row 1: F23,F21,...,F1 (r=29-33, cols 1-12) ──
+        ['F23','F21','F19','F17','F15','F13','F11','F9','F7','F5','F3','F1'].forEach((code, i) => {
+          box5(code, 29, i + 1);
+        });
+
+        // ── F machines row 2: F24,F22,...,F2 (r=34-38, cols 1-12) ──
+        ['F24','F22','F20','F18','F16','F14','F12','F10','F8','F6','F4','F2'].forEach((code, i) => {
+          box5(code, 34, i + 1);
+        });
+
+        // ── Date ──
+        sc(39, 10, new Date().toLocaleDateString('pt-BR'), {
+          font: { sz: 10 }, alignment: { horizontal: "center" }
+        });
+
+        ws['!ref'] = `A1:${colLetter(numCols16 - 1)}${TOTAL_ROWS}`;
+
+        // ── Merges ──
+        ws['!merges'] = [];
+
+        // Standard 5-row single-column merges
+        const m5 = [
+          [0,1],[0,2],[0,4],[0,5],[0,7],[0,8],[0,9],[0,10],          // CD1,CD2,CD5,CD6,CD17-CD20
+          [5,1],[5,2],[5,4],[5,5],[5,7],[5,8],[5,9],[5,10],           // CD3,CD4,CD7,CD8,CD21-CD24
+          [11,1],[11,2],[11,4],[11,5],                                 // CD9,CD10,CD13,CD14
+          [16,1],[16,2],[16,4],[16,5],                                 // CD11,CD12,CD15,CD16
+          [23,4],[23,5],[23,6],[23,7],                                 // CI1,CI2,CI3,CI4
+        ];
+        for (let i = 1; i <= 12; i++) { m5.push([29, i]); m5.push([34, i]); } // F rows
+        m5.forEach(([r, c]) => ws['!merges'].push({ s: { r, c }, e: { r: r+4, c } }));
+
+        // "17 FUSOS" horizontal label merge (r=22, cols 4-7)
+        ws['!merges'].push({ s: { r: 22, c: 4 }, e: { r: 22, c: 7 } });
+
+        // ── Column widths ──
+        ws['!cols'] = [{ wch: 2 }, ...Array(12).fill({ wch: 14 })]; // A=margin, B-M=14
+
+        // ── Row heights ──
+        ws['!rows'] = Array.from({ length: TOTAL_ROWS }, () => ({ hpt: 15 }));
+        ws['!rows'][10] = { hpt: 6 };  // gap between top and middle sections
+        ws['!rows'][21] = { hpt: 6 };  // gap before 17 FUSOS label
+        ws['!rows'][22] = { hpt: 18 }; // "17 FUSOS" label row
+        ws['!rows'][28] = { hpt: 6 };  // gap before F machines
+        ws['!rows'][39] = { hpt: 16 }; // date row
+
+        XLSXStyle.utils.book_append_sheet(wb, ws, 'Mapa 16 Fusos');
+      }
+
+      const layoutLabel = layoutType === '32_fusos' ? '32_fusos' : '16_fusos';
+      const dateStr = new Date().toISOString().split('T')[0];
+      XLSXStyle.writeFile(wb, `mapa_trancadeiras_${layoutLabel}_${dateStr}.xlsx`);
+      toast.success("Relatório exportado com sucesso!");
+    } catch (error) {
+      console.error("Erro ao exportar mapa:", error);
+      toast.error("Erro ao exportar mapa das trançadeiras");
+    }
+  };
+
   // 16 Fusos Layout - EXACT replication with stable keys
   const renderLayout16 = () => {
     const machinesByCode = useMemo(() => {
@@ -864,19 +1130,28 @@ const FusosPanel = ({ layout, machines, user, onMachineUpdate, onOrderUpdate, on
               Layout {layout === "16_fusos" ? "16" : "32"} Fusos
             </h3>
             {(user.role === "admin" || user.role === "operador_interno") && (
-              <Button 
-                onClick={() => {
-                  const availableMachines = machines.filter(m => m.status === "verde" || m.status === "amarelo");
-                  if (availableMachines.length > 0) {
-                    openManualOrderDialog(availableMachines[0]);
-                  } else {
-                    toast.error("Todas as máquinas estão em uso ou manutenção");
-                  }
-                }} 
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                + Lançar Pedido Manualmente
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => exportMapaTrancadeiras(layout)}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Exportar Relatório
+                </Button>
+                <Button 
+                  onClick={() => {
+                    const availableMachines = machines.filter(m => m.status === "verde" || m.status === "amarelo");
+                    if (availableMachines.length > 0) {
+                      openManualOrderDialog(availableMachines[0]);
+                    } else {
+                      toast.error("Todas as máquinas estão em uso ou manutenção");
+                    }
+                  }} 
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  + Lançar Pedido Manualmente
+                </Button>
+              </div>
             )}
           </div>
           <div className="status-legend">

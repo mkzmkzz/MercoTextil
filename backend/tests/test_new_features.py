@@ -258,5 +258,76 @@ class TestDefaultUsersPermissions:
                 print(f"User {user['username']} has banco_dados permission: {user['permissions'].get('banco_dados')}")
 
 
+
+class TestMapaTrancadeirasEndpoint:
+    """Tests for GET /api/reports/mapa-trancadeiras"""
+
+    def test_get_mapa_trancadeiras_32_fusos(self, auth_headers):
+        """Returns machines list with order data for 32 fusos layout"""
+        response = requests.get(
+            f"{BASE_URL}/api/reports/mapa-trancadeiras?layout_type=32_fusos",
+            headers=auth_headers
+        )
+        assert response.status_code == 200, f"Request failed: {response.text}"
+        data = response.json()
+        assert "machines" in data
+        assert "generated_at" in data
+        assert data["layout_type"] == "32_fusos"
+        assert len(data["machines"]) > 0
+        for machine in data["machines"]:
+            assert "code" in machine
+            assert "status" in machine
+            assert "order" in machine
+
+    def test_get_mapa_trancadeiras_16_fusos(self, auth_headers):
+        """Returns machines list with order data for 16 fusos layout"""
+        response = requests.get(
+            f"{BASE_URL}/api/reports/mapa-trancadeiras?layout_type=16_fusos",
+            headers=auth_headers
+        )
+        assert response.status_code == 200, f"Request failed: {response.text}"
+        data = response.json()
+        assert "machines" in data
+        assert data["layout_type"] == "16_fusos"
+        assert len(data["machines"]) > 0
+
+    def test_get_mapa_trancadeiras_no_auth(self):
+        """Unauthenticated request should be rejected"""
+        response = requests.get(
+            f"{BASE_URL}/api/reports/mapa-trancadeiras?layout_type=32_fusos"
+        )
+        assert response.status_code in [401, 403]
+
+    def test_get_mapa_trancadeiras_externo_forbidden(self):
+        """operador_externo should NOT access this endpoint"""
+        login_response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "username": "externo",
+            "password": "externo123"
+        })
+        if login_response.status_code != 200:
+            pytest.skip("External user login failed")
+        externo_token = login_response.json()["token"]
+        response = requests.get(
+            f"{BASE_URL}/api/reports/mapa-trancadeiras?layout_type=32_fusos",
+            headers={"Authorization": f"Bearer {externo_token}"}
+        )
+        assert response.status_code == 403
+
+    def test_get_mapa_trancadeiras_interno_allowed(self):
+        """operador_interno should be able to access this endpoint"""
+        login_response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "username": "interno",
+            "password": "interno123"
+        })
+        if login_response.status_code != 200:
+            pytest.skip("Internal user login failed")
+        interno_token = login_response.json()["token"]
+        response = requests.get(
+            f"{BASE_URL}/api/reports/mapa-trancadeiras?layout_type=32_fusos",
+            headers={"Authorization": f"Bearer {interno_token}"}
+        )
+        assert response.status_code == 200
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

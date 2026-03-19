@@ -1529,6 +1529,63 @@ async def get_espulas_report(current_user: User = Depends(get_current_user)):
         logger.error(f"Error exporting espulas report: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error generating espulas report: {str(e)}")
 
+@api_router.get("/reports/mapa-trancadeiras")
+async def get_mapa_trancadeiras(layout_type: str, current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["admin", "operador_interno"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    try:
+        machines = await db.machines.find({"layout_type": layout_type}).to_list(1000)
+        orders = await db.orders.find({
+            "layout_type": layout_type,
+            "status": {"$in": ["em_producao", "pendente"]}
+        }).to_list(1000)
+
+        # Build order map: machine_code -> best order (em_producao > first pendente by queue_position)
+        order_map = {}
+        for order in orders:
+            code = order.get("machine_code")
+            if code and order.get("status") == "em_producao":
+                order_map[code] = order
+
+        pendente_orders = sorted(
+            [o for o in orders if o.get("status") == "pendente"],
+            key=lambda o: o.get("queue_position", 0)
+        )
+        for order in pendente_orders:
+            code = order.get("machine_code")
+            if code and code not in order_map:
+                order_map[code] = order
+
+        result_machines = []
+        for machine in machines:
+            machine_code = machine.get("code")
+            order = order_map.get(machine_code)
+            order_data = None
+            if order:
+                order_data = {
+                    "cliente": order.get("cliente", ""),
+                    "artigo": order.get("artigo", ""),
+                    "cor": order.get("cor", ""),
+                    "quantidade": order.get("quantidade", ""),
+                    "status": order.get("status", "")
+                }
+            result_machines.append({
+                "code": machine_code,
+                "status": machine.get("status", "verde"),
+                "active": machine.get("active", True),
+                "order": order_data
+            })
+
+        return {
+            "machines": result_machines,
+            "generated_at": get_brazil_time().isoformat(),
+            "layout_type": layout_type
+        }
+    except Exception as e:
+        logger.error(f"Error generating mapa trancadeiras report: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating report: {str(e)}")
+
 # Include the router in the main app
 app.include_router(api_router)
 
